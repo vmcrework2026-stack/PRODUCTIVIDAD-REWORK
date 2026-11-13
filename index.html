@@ -1,6 +1,9 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Productividad por Mesa</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap">
 <style>
 /* Layout: captura clara (como el formato de planta) + consulta en panel oscuro de monitoreo industrial. */
@@ -175,8 +178,12 @@ td.hm{background:color-mix(in srgb,var(--c1) var(--p,0%),transparent)}
   padding:10px 16px;border-radius:8px;font-weight:600;z-index:60;max-width:calc(100% - 32px);box-shadow:0 6px 24px #0006}
 .toast.err{background:var(--bad);color:#fff}
 @media (prefers-reduced-motion:no-preference){.toast{animation:up .2s ease-out}@keyframes up{from{opacity:0;transform:translate(-50%,8px)}}}
+body{margin:0}
+[hidden]{display:none!important}
+.status a{color:var(--brand);font-weight:700}
 </style>
-
+</head>
+<body>
 <div class="app">
   <header class="top">
     <div>
@@ -248,6 +255,7 @@ td.hm{background:color-mix(in srgb,var(--c1) var(--p,0%),transparent)}
 <div class="tipbox" id="tip" hidden></div>
 <div id="toastbox" aria-live="polite"></div>
 
+<script src="config.js"></script>
 <script>
 (function(){
 'use strict';
@@ -265,6 +273,7 @@ const fdate=s=>{const d=parse(s);return pad(d.getDate())+' '+MES[d.getMonth()]+'
 const fshort=s=>{const d=parse(s);return pad(d.getDate())+' '+MES[d.getMonth()]};
 const weekStart=s=>{const d=parse(s);d.setDate(d.getDate()-((d.getDay()+6)%7));return iso(d)};
 const today=iso(new Date());
+const CFG=window.APP_CONFIG||{},API=String(CFG.APPS_SCRIPT_URL||'').trim();
 const ALMS=['C4','C5'], TURNOS=['1','2','3'], MESAS=['1','2','3','4','5','6'];
 const ACOL={C4:'var(--c1)',C5:'var(--c2)'}, TCOL={'1':'var(--c1)','2':'var(--c2)','3':'var(--c3)'};
 const SER=['var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)'];
@@ -320,9 +329,11 @@ const allTipos=()=>[...new Set([...S.cat.tipos,...getAll().map(r=>r.tipo).filter
 let toastT;
 function toast(msg,err){const b=$('#toastbox');b.innerHTML='<div class="toast'+(err?' err':'')+'" role="status">'+esc(msg)+'</div>';clearTimeout(toastT);toastT=setTimeout(()=>b.innerHTML='',3800)}
 function setStatus(){let c='warn',t='Conectando…';
-  if(!S.db&&S.db!==undefined&&S.ready){c='err';t='Sin base compartida: abre la página con tu cuenta'}
-  else if(S.db){if(S.loadErr){c='warn';t='Sin respuesta del servidor, datos pueden estar desactualizados'}else if(!S.canWrite){c='warn';t='Solo lectura'}else{c='ok';t='Conectado · guardado compartido'}}
-  $('#status').innerHTML='<span class="dot '+c+'"></span><span>'+esc(t)+'</span>'}
+  if(!API){c='err';t='Falta configurar config.js (modo demostración)'}
+  else if(S.loadErr){c='err';t='Sin conexión con Google Sheets'}
+  else if(S.ready){c='ok';t='Conectado a Google Sheets'}
+  const link=CFG.SHEET_URL?' · <a href="'+esc(CFG.SHEET_URL)+'" target="_blank" rel="noopener">Abrir hoja</a>':'';
+  $('#status').innerHTML='<span class="dot '+c+'"></span><span>'+esc(t)+link+'</span>'}
 
 /* ---------- navegación ---------- */
 function setTab(t){if(!['captura','dashboard','historial'].includes(t))t='captura';S.tab=t;
@@ -351,19 +362,17 @@ function updateCapSummary(){let P=0,Q=0,M=0;const tot={};
 function renderCatChips(){for(const g of ['marcas','tipos']){$('#cat-'+g).innerHTML=S.cat[g].map(x=>'<span class="chip">'+esc(x)+'<button type="button" data-act="catdel" data-g="'+g+'" data-v="'+esc(x)+'" aria-label="Quitar '+esc(x)+'">×</button></span>').join('')}}
 function renderCap(){$('#cap-fecha').value=S.cap.fecha;$('#cap-turno').value=S.cap.turno;$('#cap-user').value=S.cap.capturista;renderCapRows();renderCatChips();
   const ex=ALMS.filter(a=>S.cap.existing[a]);const n=$('#cap-note');
-  if(!S.canWrite&&S.db){n.className='note warn';n.textContent='Tu acceso es de solo lectura. Pide acceso de colaborador para capturar.'}
-  else if(!S.db&&S.ready){n.className='note warn';n.textContent='Para guardar capturas abre esta página con tu cuenta de Claude.'}
+  if(!API){n.className='note warn';n.textContent='Falta configurar config.js: la página funciona en modo demostración y no guarda.'}
   else if(ex.length){n.className='note';n.textContent='Ya hay captura guardada de este turno en '+ex.join(' y ')+'. Al guardar se actualiza.'}
   else{n.className='note';n.textContent='Captura nueva para esta fecha y turno.'}}
 let loadTok=0;
-async function loadExisting(){if(!S.db){renderCap();return}const tok=++loadTok;const rows=blank(),ex={C4:false,C5:false};
-  try{for(const a of ALMS){const s=await S.db.doc('capturas/'+S.cap.fecha+'_T'+S.cap.turno+'_'+a).get();
-    if(s.exists){ex[a]=true;for(const r of (s.data().rows||[])){const i=(+r.mesa||0)-1;if(rows[a][i])rows[a][i]={mesa:+r.mesa,marca:r.marca||'',tipo:r.tipo||'',piezas:r.piezas,personas:r.personas}}}}}
+async function loadExisting(){if(!API){renderCap();return}const tok=++loadTok;const rows=blank(),ex={C4:false,C5:false};
+  try{const j=await apiGet({action:'get',fecha:S.cap.fecha,turno:S.cap.turno});
+    for(const r of j.rows){const a=String(r.almacen),i=(+r.mesa||0)-1;if(rows[a]&&rows[a][i]){rows[a][i]={mesa:+r.mesa,marca:r.marca||'',tipo:r.tipo||'',piezas:r.piezas,personas:r.personas};ex[a]=true}}}
   catch(e){}
   if(tok!==loadTok)return;S.cap.rows=rows;S.cap.existing=ex;renderCap()}
 async function saveCap(){
-  if(!S.db){toast('No hay base compartida disponible. Abre la página con tu cuenta.',true);return}
-  if(!S.canWrite){toast('Tu acceso es de solo lectura.',true);return}
+  if(!API){toast('Falta configurar la conexión a Google Sheets (config.js).',true);return}
   if(!S.cap.fecha){toast('Elige la fecha.',true);return}
   document.querySelectorAll('.mrow .bad').forEach(e=>e.classList.remove('bad'));
   let first=null,msg='';
@@ -374,15 +383,14 @@ async function saveCap(){
   const b=$('#btn-save');b.disabled=true;b.textContent='Guardando…';let saved=0,skipped=[];
   try{for(const a of ALMS){const rows=S.cap.rows[a].filter(r=>+r.piezas>0).map(r=>({mesa:r.mesa,marca:r.marca,tipo:r.tipo,piezas:+r.piezas,personas:+r.personas}));
     if(!rows.length){if(S.cap.existing[a])skipped.push(a);continue}
-    await S.db.doc('capturas/'+S.cap.fecha+'_T'+S.cap.turno+'_'+a).set({fecha:S.cap.fecha,turno:S.cap.turno,almacen:a,rows:rows,
-      piezas:rows.reduce((s,r)=>s+r.piezas,0),personas:rows.reduce((s,r)=>s+r.personas,0),capturista:S.cap.capturista.trim(),ts:Date.now()});
+    await apiPost({action:'save',fecha:S.cap.fecha,turno:S.cap.turno,almacen:a,rows:rows,capturista:S.cap.capturista.trim()});
     S.cap.existing[a]=true;saved++}
     if(!saved&&!skipped.length)toast('No hay mesas con piezas para guardar.',true);
-    else{S.hasAny=true;toast(saved?'Captura guardada'+(skipped.length?'. '+skipped.join(', ')+' sin piezas: no se modificó lo guardado.':'.'):'Sin cambios: '+skipped.join(', ')+' sin piezas. Para borrar una captura usa el historial.',!saved);renderCap()}}
+    else{if(saved){S.hasAny=true;fetchRange()}toast(saved?'Captura guardada'+(skipped.length?'. '+skipped.join(', ')+' sin piezas: no se modificó lo guardado.':'.'):'Sin cambios: '+skipped.join(', ')+' sin piezas. Para borrar una captura usa el historial.',!saved);renderCap()}}
   catch(e){toast('No se pudo guardar: '+((e&&e.message)||'intenta de nuevo')+'.',true)}
   b.disabled=false;b.textContent='Guardar captura'}
 async function writeCat(){S.cat={tipos:S.cat.tipos.slice(),marcas:S.cat.marcas.slice()};renderCatChips();renderCapRows();
-  if(S.db&&S.canWrite){try{await S.db.doc('config/catalogos').set({tipos:S.cat.tipos,marcas:S.cat.marcas})}catch(e){toast('No se pudo guardar el catálogo.',true)}}}
+  if(API){try{await apiPost({action:'catalogs',tipos:S.cat.tipos,marcas:S.cat.marcas})}catch(e){toast('No se pudo guardar el catálogo: '+e.message,true)}}}
 
 /* ---------- filtros ---------- */
 const PRESETS=[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['mes','Mes actual'],['mant','Mes anterior'],['anio','Este año'],['todo','Todo']];
@@ -540,7 +548,7 @@ function renderHist(){const H=S.hist,rows=histRows(),demo=demoActive(),PS=25,pag
   const td=(c,r)=>{const v=r[c[0]];let s=c[0]==='fecha'?fdate(v):c[0]==='turno'?'T'+v:c[0]==='mesa'?'M'+v:c[0]==='ts'?fts(v):c[0]==='ppp'?fmt(v,1):typeof v==='number'?fmt(v):(v||'—');return '<td class="'+(c[2]?'n':'')+'">'+esc(s)+'</td>'};
   const rowId=r=>r.docId;
   const act=r=>{if(!cap)return '<td></td>';if(demo)return '<td></td>';
-    if(H.confirm===r.docId)return '<td>¿Eliminar? <button class="btn sm" type="button" data-act="hdelok" data-v="'+esc(r.docId)+'">Sí</button> <button class="btn sm" type="button" data-act="hdelno">No</button></td>';
+    if(H.confirm===r.docId)return '<td>¿Eliminar? <input id="admkey" class="search" style="width:140px;padding:4px 8px" type="password" placeholder="Clave admin" aria-label="Clave de administrador"> <button class="btn sm" type="button" data-act="hdelok" data-v="'+esc(r.docId)+'">Sí</button> <button class="btn sm" type="button" data-act="hdelno">No</button></td>';
     return '<td><button class="btn sm" type="button" data-act="hedit" data-f="'+r.fecha+'" data-t="'+r.turno+'">Editar</button>'+(S.canEdit?' <button class="btn sm" type="button" data-act="hdel" data-v="'+esc(r.docId)+'">Eliminar</button>':'')+'</td>'};
   $('#hist').innerHTML=(demo?'<div class="banner" style="margin-bottom:12px"><strong>DATOS DE EJEMPLO</strong><span>Todavía no hay capturas guardadas.</span><button class="btn sm" type="button" data-act="demo" data-v="off">Ocultar ejemplo</button></div>':'')+
    '<div class="panel"><div class="ph"><h2 class="pt">Historial de capturas · '+fmt(rows.length)+' '+(cap?'capturas':'registros')+'</h2>'+
@@ -551,8 +559,8 @@ function renderHist(){const H=S.hist,rows=histRows(),demo=demoActive(),PS=25,pag
    '<div class="pager"><span>Mostrando '+(rows.length?H.page*PS+1:0)+'–'+Math.min(rows.length,H.page*PS+PS)+' de '+fmt(rows.length)+'</span><span><button class="btn sm" type="button" data-act="hpage" data-v="-1"'+(H.page<=0?' disabled':'')+'>Anterior</button> <span class="num">'+(H.page+1)+' / '+pages+'</span> <button class="btn sm" type="button" data-act="hpage" data-v="1"'+(H.page>=pages-1?' disabled':'')+'>Siguiente</button></span></div></div>';
   const q=$('#h-q');if(q&&H.focusQ){q.focus();q.setSelectionRange(q.value.length,q.value.length)}}
 function toCsv(head,body){const q=v=>{v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};return '﻿'+[head].concat(body).map(r=>r.map(q).join(',')).join('\r\n')}
-async function exportCsv(head,body,name){if(!S.dl){toast('La descarga no está disponible en esta vista.',true);return}
-  try{await S.dl.save({filename:name+'-'+today+'.csv',data:toCsv(head,body)})}catch(e){if(!e||e.code!=='declined')toast('No se pudo exportar el archivo.',true)}}
+function exportCsv(head,body,name){const b=new Blob([toCsv(head,body)],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download=name+'-'+today+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 
 /* ---------- tooltip ---------- */
 function showTip(html,x,y){const t=$('#tip');t.innerHTML=html;t.hidden=false;const w=t.offsetWidth,h=t.offsetHeight;let L=x+14,T=y+14;if(L+w>innerWidth-8)L=x-w-14;if(T+h>innerHeight-8)T=y-h-14;t.style.left=Math.max(8,L)+'px';t.style.top=Math.max(8,T)+'px'}
@@ -579,7 +587,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
    case 'hedit':S.cap.fecha=b.dataset.f;S.cap.turno=b.dataset.t;location.hash='#captura';loadExisting();break;
    case 'hdel':S.hist.confirm=v;paint();break;
    case 'hdelno':S.hist.confirm=null;paint();break;
-   case 'hdelok':S.hist.confirm=null;(async()=>{try{await S.db.doc('capturas/'+v).delete();toast('Captura eliminada');}catch(x){toast('No se pudo eliminar.',true)}})();break;
+   case 'hdelok':{const k=($('#admkey')||{}).value||'';S.hist.confirm=null;(async()=>{try{await apiPost({action:'delete',docId:v,adminKey:k});toast('Captura eliminada');await fetchRange()}catch(x){toast('No se pudo eliminar: '+x.message,true)}})();break}
    case 'hcsv':{const rows=histRows(),cap=S.hist.mode==='capturas',cols=cap?CCOLS:HCOLS;
      exportCsv(cols.map(c=>c[1]),rows.map(r=>cols.map(c=>c[0]==='ts'?(r.ts?new Date(r.ts).toISOString():''):c[0]==='ppp'?r.ppp.toFixed(2):r[c[0]])),cap?'capturas-retrabajo':'historial-retrabajo');break}
    case 'catadd':{const g=b.dataset.g,i=$('#add-'+g),x=i.value.trim();if(!x)break;if(!S.cat[g].some(y=>y.toLowerCase()===x.toLowerCase())){S.cat[g]=S.cat[g].concat([x]);writeCat()}i.value='';break}
@@ -602,26 +610,25 @@ dashEl.addEventListener('pointerleave',()=>{const w=document.querySelector('.cha
 dashEl.addEventListener('pointerout',e=>{if(e.target.closest&&e.target.closest('.chartwrap')&&!(e.relatedTarget&&e.relatedTarget.closest&&e.relatedTarget.closest('.chartwrap'))){const w=e.target.closest('.chartwrap');chartLeave(w)}});
 let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(S.tab==='dashboard')drawChart(cur())},150)});
 
-/* ---------- suscripción a la base ---------- */
-let unsub=null,tmo=null,sd=null;
-function subscribe(){clearTimeout(sd);sd=setTimeout(()=>{if(!S.db)return;if(unsub)unsub();S.loading=true;
-  const n=diffDays(S.range.from,S.range.to)+1,ext=addDays(S.range.from,-n);clearTimeout(tmo);tmo=setTimeout(()=>{S.loadErr=true;paint()},10000);
-  unsub=S.db.collection('capturas').where('fecha','>=',ext).where('fecha','<=',S.range.to).onSnapshot(snap=>{
-    if(!snap.metadata.fromCache){clearTimeout(tmo);S.loadErr=false}S.loading=false;S.recs=flatten(snap.docs);if(S.recs.length)S.hasAny=true;paint()},
-    err=>{clearTimeout(tmo);S.loading=false;S.loadErr=true;paint()})},250)}
+/* ---------- Google Sheets (Apps Script) ---------- */
+const norm=r=>{const p=+r.piezas||0,q=+r.personas||0;return{fecha:String(r.fecha),turno:String(r.turno),almacen:String(r.almacen),mesa:String(r.mesa),marca:r.marca||'',tipo:r.tipo||'',piezas:p,personas:q,ppp:q?p/q:0,capturista:r.capturista||'',ts:+r.ts||0,docId:r.docId||(r.fecha+'_T'+r.turno+'_'+r.almacen)}};
+async function apiGet(p){const u=new URL(API);for(const k in p)u.searchParams.set(k,p[k]);const r=await fetch(u.toString());if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();if(j.error)throw new Error(j.error);return j}
+async function apiPost(b){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({key:CFG.WRITE_KEY||''},b))});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();if(j.error)throw new Error(j.error);return j}
+let fetchTok=0,sd=null;
+async function fetchRange(){if(!API)return;const tok=++fetchTok,n=diffDays(S.range.from,S.range.to)+1,ext=addDays(S.range.from,-n);
+  try{const j=await apiGet({action:'list',from:ext,to:S.range.to});if(tok!==fetchTok)return;S.recs=j.rows.map(norm);S.hasAny=(+j.total||0)>0;S.loadErr=false}
+  catch(e){if(tok!==fetchTok)return;S.loadErr=true}
+  S.loading=false;paint()}
+function subscribe(){clearTimeout(sd);sd=setTimeout(fetchRange,250)}
+setInterval(()=>{if(!document.hidden&&S.tab!=='captura')fetchRange()},30000);
 
 async function init(){
-  S.cap.fecha=today;renderCap();setTab(location.hash.slice(1));
-  const use=n=>window.claude&&window.claude.use?window.claude.use(n).catch(()=>null):Promise.resolve(null);
-  const r=await Promise.all([use('db'),use('user'),use('downloads')]);
-  S.db=r[0];S.user=r[1];S.dl=r[2];S.ready=true;
-  if(S.user){try{const w=await Promise.resolve(S.user.can('data.write'));if(w===false)S.canWrite=false;S.canEdit=!!(await Promise.resolve(S.user.canEdit()))}catch(e){}}
-  if(!S.db){S.hasAny=false;renderCap();paint();return}
-  try{const s=await S.db.collection('capturas').limit(1).get();S.hasAny=!s.empty}catch(e){S.hasAny=null}
-  S.db.doc('config/catalogos').onSnapshot(s=>{if(s.exists){const d=s.data();if(Array.isArray(d.tipos)&&Array.isArray(d.marcas)){S.cat={tipos:d.tipos,marcas:d.marcas};renderCatChips();if(S.tab==='captura'&&!document.activeElement.matches('.mrow *'))renderCapRows();else if(S.tab!=='captura')paint()}}},()=>{});
-  subscribe();await loadExisting();paint()}
+  S.cap.fecha=today;S.canEdit=!!API;renderCap();setTab(location.hash.slice(1));S.ready=true;
+  if(!API){S.hasAny=false;renderCap();paint();return}
+  try{const c=await apiGet({action:'catalogs'});if(c.tipos&&c.tipos.length)S.cat.tipos=c.tipos;if(c.marcas&&c.marcas.length)S.cat.marcas=c.marcas;renderCatChips();renderCapRows()}catch(e){}
+  await Promise.all([fetchRange(),loadExisting()]);paint()}
 init();
 })();
 </script>
-
-</body></html>
+</body>
+</html>
